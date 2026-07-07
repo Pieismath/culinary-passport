@@ -166,7 +166,14 @@ Supabase backend. Scaffolding that already exists:
 - [`supabase/functions/generate-avatar/`](supabase/functions/generate-avatar/index.ts) —
   Edge Function: selfie → stylized character portrait via Gemini 2.5 Flash Image
   ("Nano Banana"), with a Flux Kontext fallback behind a provider abstraction, a locked
-  server-side style prompt, and a 3-generations/day limit.
+  server-side style prompt, and a 3-generations/day limit. Note: the Gemini image model
+  requires **billing enabled** on the Google AI project (free tier quota is 0).
+- [`supabase/functions/places-proxy/`](supabase/functions/places-proxy/index.ts) —
+  Places calls for the iOS app with the key held server-side (mobile can't use a
+  referrer-restricted key; use a separate unrestricted-app / API-restricted key here).
+- [`supabase/functions/notify-group/`](supabase/functions/notify-group/index.ts) —
+  push fan-out scaffold, invoked by a DB webhook on `group_posts` inserts; APNs
+  delivery lands with the v1.2 push work.
 - [`scripts/avatar-style-test.mjs`](scripts/avatar-style-test.mjs) — the go/no-go
   de-risk harness: run ~5 selfies through the exact production prompt and judge the
   contact sheet before committing to the iOS build.
