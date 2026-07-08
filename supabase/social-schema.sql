@@ -193,6 +193,22 @@ alter table public.avatar_generations enable row level security;
 create policy "users read their own generation history"
   on public.avatar_generations for select to authenticated using (user_id = auth.uid());
 
+-- ---------------------------------------------------------------- push tokens
+-- APNs device tokens for the notify-group fan-out (one per user+platform).
+create table if not exists public.device_tokens (
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  platform   text not null default 'ios' check (platform in ('ios', 'web')),
+  token      text not null,
+  updated_at timestamptz not null default now(),
+  primary key (user_id, platform)
+);
+
+alter table public.device_tokens enable row level security;
+
+create policy "users manage their own device tokens"
+  on public.device_tokens for all to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 -- ---------------------------------------------------------------- storage
 insert into storage.buckets (id, name, public) values ('avatars', 'avatars', true)
 on conflict (id) do nothing;
