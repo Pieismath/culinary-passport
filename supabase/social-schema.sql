@@ -44,7 +44,8 @@ create table if not exists public.groups (
   name        text not null,
   cover_photo text,
   invite_code text not null unique default encode(gen_random_bytes(6), 'hex'),
-  created_by  uuid not null references public.profiles (id),
+  -- cascade so deleting an account cleanly removes the groups it created
+  created_by  uuid not null references public.profiles (id) on delete cascade,
   created_at  timestamptz not null default now()
 );
 
