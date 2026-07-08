@@ -68,11 +68,33 @@ $$;
 alter table public.groups enable row level security;
 alter table public.group_members enable row level security;
 
-create policy "members see their groups"
-  on public.groups for select to authenticated using (public.is_group_member(id));
+-- Creators must see their own groups even before membership exists — the
+-- INSERT ... RETURNING that hands back the new group id runs this policy too.
+create policy "members and creators see their groups"
+  on public.groups for select to authenticated
+  using (created_by = auth.uid() or public.is_group_member(id));
 
 create policy "anyone signed in can create a group"
   on public.groups for insert to authenticated with check (created_by = auth.uid());
+
+-- Seed the creator as owner automatically (avoids a second client round-trip
+-- that would race the RLS membership checks).
+create or replace function public.handle_new_group()
+returns trigger
+language plpgsql security definer set search_path = public
+as $$
+begin
+  insert into public.group_members (group_id, user_id, role)
+  values (new.id, new.created_by, 'owner')
+  on conflict do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_group_created on public.groups;
+create trigger on_group_created
+  after insert on public.groups
+  for each row execute function public.handle_new_group();
 
 create policy "owners update their groups"
   on public.groups for update to authenticated
