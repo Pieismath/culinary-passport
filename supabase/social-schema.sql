@@ -251,3 +251,45 @@ create policy "signed-in users upload group covers"
 alter publication supabase_realtime add table public.group_posts;
 alter publication supabase_realtime add table public.post_comments;
 alter publication supabase_realtime add table public.post_reactions;
+
+-- ------------------------------------------------ security audit hardening (2026-07-13)
+-- Closes access-control / privacy holes found in the audit. Placed at the end of
+-- the social layer because it references is_public + shares_group. Also shipped
+-- standalone as patches/2026-07-13-security-audit-rls.sql. See that file's header
+-- for the full finding-by-finding rationale.
+
+-- Finding 1 — profiles readable only if public, your own, or a group co-member
+-- (replaces the old USING (true) that made the is_public toggle a no-op).
+drop policy if exists "profiles are visible to signed-in users" on public.profiles;
+create policy "profiles are visible to signed-in users"
+  on public.profiles for select to authenticated
+  using (is_public or id = auth.uid() or public.shares_group(id, auth.uid()));
+
+-- Finding 5 — profiles UPDATE: mirror USING into WITH CHECK.
+drop policy if exists "users manage their own profile" on public.profiles;
+create policy "users manage their own profile"
+  on public.profiles for update to authenticated
+  using (id = auth.uid())
+  with check (id = auth.uid());
+
+-- Finding 2 — wishlist SELECT/DELETE scoped to owner.
+drop policy if exists "both of you see the wishlist" on public.wishlist;
+create policy "see your own wishlist"
+  on public.wishlist for select to authenticated
+  using (user_id = auth.uid());
+
+drop policy if exists "either of you can remove queued countries" on public.wishlist;
+create policy "remove your own queued countries"
+  on public.wishlist for delete to authenticated
+  using (user_id = auth.uid());
+
+-- Finding 3 — group_members owner-seed happens via SECURITY DEFINER paths only;
+-- drop the direct-insert policy that let anyone join any group.
+drop policy if exists "creators seed themselves as owner" on public.group_members;
+
+-- Finding 4 — bucket size (10 MB) + mime (image/*) limits. `photos` stays public
+-- for now (Option B — obscurity-only); private + signed URLs is tracked follow-up.
+update storage.buckets
+   set file_size_limit = 10485760,
+       allowed_mime_types = array['image/*']
+ where id in ('photos', 'avatars', 'group-covers');
