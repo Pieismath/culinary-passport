@@ -4,3 +4,6 @@ dist
 .env.local
 .DS_Store
 *.local
+
+# supabase CLI link metadata (machine-local)
+supabase/.temp/
