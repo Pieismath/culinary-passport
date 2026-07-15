@@ -13,6 +13,8 @@
 //   (a SEPARATE key from the web one: API-restricted to Places API (New),
 //    application restriction "None" — it never leaves this function.)
 
+import { createClient } from "npm:@supabase/supabase-js@2";
+
 const FIELDS = {
   textsearch:
     "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount",
@@ -26,9 +28,17 @@ Deno.serve(async (req) => {
   const key = Deno.env.get("GOOGLE_PLACES_SERVER_KEY");
   if (!key) return json({ error: "GOOGLE_PLACES_SERVER_KEY not configured" }, 500);
 
-  // Require a signed-in user — this proxy is not a public Places mirror.
-  const authHeader = req.headers.get("Authorization") ?? "";
-  if (!authHeader.startsWith("Bearer ")) return json({ error: "Not signed in" }, 401);
+  // Require a signed-in USER — this proxy is not a public Places mirror.
+  // The platform's verify_jwt gate also lets the bare anon key through, so
+  // resolve the token to a real user the same way generate-avatar does.
+  const auth = req.headers.get("Authorization") ?? "";
+  const anon = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: auth } } },
+  );
+  const { data: { user } } = await anon.auth.getUser();
+  if (!user) return json({ error: "Not signed in" }, 401);
 
   const body = await req.json().catch(() => null);
   if (!body?.kind) return json({ error: "Missing kind" }, 400);

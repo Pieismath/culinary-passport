@@ -140,6 +140,7 @@ export class SupabaseBackend implements Backend {
       userId: w.user_id,
       createdAt: w.created_at,
     }))
+    await this.signPhotos()
     this.onChange()
   }
 
@@ -167,22 +168,48 @@ export class SupabaseBackend implements Backend {
     await this.client.auth.signOut()
   }
 
+  /** The bucket is private: store bare storage PATHS (like the iOS app) and
+   *  render through signed URLs minted at reload time (see signPhotos). */
   private async uploadPhotos(files: File[]): Promise<string[]> {
-    const urls: string[] = []
+    const paths: string[] = []
     for (const file of files) {
       const blob = await compressPhoto(file)
       const path = `${this.currentUserId}/${crypto.randomUUID()}.jpg`
       const { error } = await this.client.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg' })
       if (error) throw new Error(`Photo upload failed: ${error.message}`)
-      urls.push(this.client.storage.from(BUCKET).getPublicUrl(path).data.publicUrl)
+      paths.push(path)
     }
-    return urls
+    return paths
   }
 
   private storagePathOf(url: string): string | null {
     const marker = `/object/public/${BUCKET}/`
     const i = url.indexOf(marker)
     return i === -1 ? null : decodeURIComponent(url.slice(i + marker.length))
+  }
+
+  /** Stored photo string → storage path (tolerates legacy public-URL rows). */
+  private toPath(p: string): string {
+    return p.startsWith('http') ? (this.storagePathOf(p) ?? p) : p
+  }
+
+  /** path (or legacy URL) → signed URL, refreshed on every reload. */
+  private signedUrls = new Map<string, string>()
+
+  private async signPhotos(): Promise<void> {
+    const stored = [...new Set(this.entries.flatMap((e) => e.photos))]
+    if (!stored.length) {
+      this.signedUrls = new Map()
+      return
+    }
+    const paths = stored.map((p) => this.toPath(p))
+    const { data } = await this.client.storage.from(BUCKET).createSignedUrls(paths, 60 * 60 * 12)
+    const next = new Map<string, string>()
+    for (let i = 0; i < stored.length; i++) {
+      const signed = data?.[i]?.signedUrl
+      if (signed) next.set(stored[i], signed)
+    }
+    this.signedUrls = next
   }
 
   async addEntry(draft: EntryDraft, photos: File[]): Promise<Entry> {
@@ -202,8 +229,7 @@ export class SupabaseBackend implements Backend {
     const prev = this.entries.find((e) => e.id === id)
     const droppedPaths = (prev?.photos ?? [])
       .filter((p) => !keptPhotos.includes(p))
-      .map((p) => this.storagePathOf(p))
-      .filter((p): p is string => Boolean(p))
+      .map((p) => this.toPath(p))
     if (droppedPaths.length) await this.client.storage.from(BUCKET).remove(droppedPaths).catch(() => {})
     const photoUrls = [...keptPhotos, ...(await this.uploadPhotos(newPhotos))]
     const { data, error } = await this.client
@@ -219,7 +245,7 @@ export class SupabaseBackend implements Backend {
 
   async deleteEntry(id: string): Promise<void> {
     const prev = this.entries.find((e) => e.id === id)
-    const paths = (prev?.photos ?? []).map((p) => this.storagePathOf(p)).filter((p): p is string => Boolean(p))
+    const paths = (prev?.photos ?? []).map((p) => this.toPath(p))
     if (paths.length) await this.client.storage.from(BUCKET).remove(paths).catch(() => {})
     const { error } = await this.client.from('entries').delete().eq('id', id)
     if (error) throw new Error(error.message)
@@ -238,6 +264,6 @@ export class SupabaseBackend implements Backend {
   }
 
   resolvePhoto(url: string): string {
-    return url
+    return this.signedUrls.get(url) ?? this.signedUrls.get(this.toPath(url)) ?? url
   }
 }

@@ -61,10 +61,10 @@ long-distance, two-city setup, connect Supabase:
 ## Supabase mode (real sync between the two of you)
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. In the SQL editor, paste and run all of [`supabase/schema.sql`](supabase/schema.sql).
-   This creates the tables, row-level security, the public `photos` storage bucket,
-   realtime publication, and a trigger that auto-creates profiles
-   (first account signed up gets blue, second gets green).
+2. In the SQL editor, run the files in [`supabase/migrations/`](supabase/migrations/)
+   **in filename order** (see `supabase/README.md`). They create the tables,
+   row-level security, storage buckets, realtime publication, and a trigger that
+   auto-creates profiles (first account signed up gets blue, second gets green).
 3. Copy `.env.example` to `.env` and fill in from **Project Settings → API**:
    ```
    VITE_SUPABASE_URL=https://xxxx.supabase.co
@@ -79,8 +79,8 @@ long-distance, two-city setup, connect Supabase:
 Entries and wishlist changes sync live via Supabase Realtime — when one of you stamps a
 country, it fills in on the other's globe within a second or two.
 
-> Upgrading an existing project? Re-running `schema.sql` is safe — it includes
-> `add column if not exists` migrations for the newer `place_id` / `lat` / `lng` columns.
+> Upgrading an existing project? Apply any migration files you haven't run yet,
+> in order — they're written idempotently (`if not exists` guards).
 
 ## Google Places setup (recommended)
 
@@ -107,9 +107,9 @@ Google Places (real category search, star ratings, review counts). Setup:
 No key? Everything still works on free OpenStreetMap/Photon data — just with weaker
 cuisine search and no ratings.
 
-> Photos are stored in a **public-read** bucket (simple + fast). They're unguessable UUID
-> URLs, but technically anyone with a URL can view. Fine for meal pics; switch the bucket
-> to private + signed URLs if you ever care.
+> Photos live in a **private** bucket, rendered via signed URLs. Who can view a
+> photo follows the owning entry's visibility (public / shared-group / private) —
+> enforced by storage RLS, not obscurity.
 
 ## Deploying
 
@@ -148,7 +148,7 @@ src/
   store/store.tsx      React context: derived state, unlock detection, toasts
   components/          GlobeView, CountryPanel, EntryModal, BooksView, Figure3D, …
 public/data/countries.geojson   Natural Earth 110m (vendored, 177 countries)
-supabase/schema.sql             run-once database setup
+supabase/migrations/            database setup — run in order (see supabase/README.md)
 ```
 
 "174 countries" is the count of selectable polygons in Natural Earth's 110m dataset
@@ -160,9 +160,10 @@ total updates automatically if you two ever get *that* serious.
 This web app is the prototype; the real product is a native iOS app sharing the same
 Supabase backend. Scaffolding that already exists:
 
-- [`supabase/social-schema.sql`](supabase/social-schema.sql) — v2 schema: public profiles,
-  follows, groups + membership + invite codes, group feed (posts / comments / reactions),
-  avatar rate-limit ledger, `avatars` + `group-covers` buckets. Additive; run after `schema.sql`.
+- [`supabase/migrations/`](supabase/migrations/) — the full schema as ordered
+  migrations: MVP, the social layer (public profiles, follows, groups + invite
+  codes, group feed, avatar rate-limit ledger, extra buckets), per-entry
+  visibility RLS, and the private-photos hardening.
 - [`supabase/functions/generate-avatar/`](supabase/functions/generate-avatar/index.ts) —
   Edge Function: selfie → stylized character portrait via Gemini 2.5 Flash Image
   ("Nano Banana"), with a Flux Kontext fallback behind a provider abstraction, a locked
@@ -177,9 +178,10 @@ Supabase backend. Scaffolding that already exists:
 - [`scripts/avatar-style-test.mjs`](scripts/avatar-style-test.mjs) — the go/no-go
   de-risk harness: run ~5 selfies through the exact production prompt and judge the
   contact sheet before committing to the iOS build.
-- `../culinary-passport-ios/` — SwiftUI app scaffold (XcodeGen + supabase-swift):
-  auth shell, schema-mirroring models, avatar upload client with Vision face-crop,
-  SceneKit globe stub, and the ordered roadmap in `docs/ROADMAP.md`.
+- `../culinary-passport-ios/` — the real product, well past scaffold: SceneKit
+  polygon globe, entries + photos, avatar pipeline, social graph + discover,
+  groups with live feed and group globe, dinner picker, synced meals, Wrapped.
+  Status and build order in its `docs/ROADMAP.md`.
 
 ## Ideas not built yet (good next dates)
 

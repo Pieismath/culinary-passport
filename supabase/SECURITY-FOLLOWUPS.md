@@ -1,29 +1,59 @@
 # Security follow-ups
 
-Tracked work deferred out of the 2026-07-13 security audit fix pass
-(see `patches/2026-07-13-security-audit-rls.sql` for what shipped).
+Audit trail for the 2026-07-13 security audit and its follow-through.
+Shipped fixes from the original pass: `patches/2026-07-13-security-audit-rls.sql`
+(folded into `migrations/20260708110000_social_layer.sql`).
 
-## Finding 4 — private meal photos (Option A)
+## Resolved
 
-The `photos` storage bucket is currently **public** (Option B): meal photos are
-served via unguessable UUID-path public URLs, so a photo attached to a
-`private`/`groups` entry is still fetchable by anyone who has (or guesses) the
-URL. Size/mime limits were added, but the bucket is not access-controlled.
+### Finding 4 — private meal photos (Option A) ✅ 2026-07-15
 
-**Option A (correct privacy), not yet done:**
-- Make the `photos` bucket `public: false`.
-- Change `SupabaseService.photoURL()` from `getPublicURL` (sync) to
-  `createSignedURL` (async, expiring). This ripples to every `AsyncImage` render
-  site: `EntryRow`, `PeopleView`, `PhotoMapView`, `MealDetailCard`, `EntrySheet`
-  thumbnails.
-- Add `storage.objects` RLS that ties each object to its entry's visibility.
-  Non-trivial: the object path is `user_id/uuid.jpg` with no link to the entry
-  row, so signing has to be gated on entry visibility somehow (e.g. store the
-  entry id / visibility in the object path or a mapping table).
+`migrations/20260715132500_private_photos.sql`: the `photos` bucket is now
+`public: false`, and object SELECT is gated on the owning entry's visibility
+(owner always; others only via an entry whose `photos[]` references the object
+and which is `public` or group-shared with the viewer — same `shares_group()`
+as entries RLS). Clients render through signed URLs:
 
-## Finding 7 — realtime group feed (optional)
+- iOS: `PhotoSigning.swift` (`PhotoURLCache` actor + `SignedPhotoImage` view)
+  replaced every `getPublicURL`/`AsyncImage` site.
+- web: paths (not public URLs) are stored; `signPhotos()` batch-signs at
+  reload; `resolvePhoto()` serves from the signed map.
 
-`group_posts` / `post_comments` / `post_reactions` are realtime-enabled in the
-publication, but `GroupFeedView` still uses pull-to-refresh. Optional: add a
-Supabase realtime subscription scoped to the current group and update the feed
-in place. Deferred as a feature rather than a security fix.
+Verified live (disposable users, since deleted): public URL dead; owner signs;
+stranger blocked on private+groups photos; group-mate signs groups photo but
+not private. 14/14 checks passed.
+
+### Finding 7 — realtime group feed ✅ 2026-07-15
+
+`GroupFeedView.listenForChanges()` subscribes to `group_posts` (server-side
+filter on the group) plus `post_comments`/`post_reactions`, debounce-reloads in
+place; pull-to-refresh remains as fallback. Verified live: an authenticated
+member's subscription (claims `role=authenticated`) received a members-only
+INSERT event; an anon subscription correctly received nothing.
+
+### (Post-audit) entries-visibility RLS was untracked ✅ 2026-07-15
+
+The per-entry visibility policies and `shares_group()` had been applied to
+production via the SQL editor but never committed — a fresh-project bootstrap
+failed on the missing function. Reconstructed byte-for-byte from live
+`pg_policies`/`pg_get_functiondef` into
+`migrations/20260709120000_entries_visibility_rls.sql`. Schema changes are
+tracked migrations from now on (see `README.md`).
+
+### (Post-audit) places-proxy accepted the bare anon key ✅ 2026-07-15
+
+Platform `verify_jwt` already rejected garbage tokens, but the project anon key
+alone passed, exposing the paid Places key to anyone holding an app bundle.
+The function now resolves the caller to a real user via `auth.getUser()`
+(same pattern as generate-avatar). Verified: no token → 401, garbage → 401,
+bare anon key → 401, signed-in user → 200.
+
+## Open
+
+- **notify-group webhook secret** — when APNs delivery lands (v1.2 push work,
+  gated on the paid Apple Developer account), the function must verify a
+  webhook secret header before trusting payloads; it runs with service-role
+  privileges. It is currently a log-only stub, so exposure is nil today.
+- **places-proxy rate limiting** — per-user quota (like generate-avatar's
+  3/day ledger) would cap Places spend if an account is compromised. Low
+  urgency at current scale.
