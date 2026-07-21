@@ -50,7 +50,13 @@ if "--confirm" not in sys.argv:
     sys.exit(0)
 
 for u in users:
-    call(f"{URL}/storage/v1/object/avatars/{u['id'].lower()}/avatar.jpg", "DELETE")
+    # everything in their avatar folder, not just the seeded file — they may
+    # have uploaded a new photo through the app
+    folder = u["id"].lower()
+    st, objects = call(f"{URL}/storage/v1/object/list/avatars", "POST",
+                       {"prefix": folder, "limit": 100})
+    for obj in (objects or []):
+        call(f"{URL}/storage/v1/object/avatars/{folder}/{obj['name']}", "DELETE")
     st, _ = call(f"{URL}/auth/v1/admin/users/{u['id']}", "DELETE")
     print(f"removed {u['email']}: {st}")
 
