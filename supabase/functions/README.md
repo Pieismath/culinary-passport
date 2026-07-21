@@ -27,9 +27,12 @@ automatically by the platform.
 
 ## Notes
 
-- **generate-avatar** requires the `avatar_generations` table + `avatars` bucket from
-  `../social-schema.sql`, and **billing enabled** on the Google AI project — the
-  Gemini image model has a free-tier quota of 0.
+- **generate-avatar** is **DORMANT as of 2026-07-21** — the iOS app switched to
+  user-chosen profile photos, so nothing calls it. It's still deployed and still
+  holds `GEMINI_API_KEY`; delete the function and the secret if AI avatars
+  aren't coming back (`supabase functions delete generate-avatar`).
+  It requires the `avatar_generations` table + `avatars` bucket, and **billing
+  enabled** on the Google AI project — the Gemini image model's free-tier quota is 0.
 - **notify-group** is invoked by a Database Webhook: Dashboard → Database → Webhooks →
   on INSERT into `group_posts` → HTTP request to this function. Delivery to APNs is
   stubbed until the iOS push entitlement exists (v1.2).
