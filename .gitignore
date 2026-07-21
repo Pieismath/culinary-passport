@@ -7,3 +7,6 @@ dist
 
 # supabase CLI link metadata (machine-local)
 supabase/.temp/
+
+# demo state files hold service-role credentials
+scripts/demo/*.json
