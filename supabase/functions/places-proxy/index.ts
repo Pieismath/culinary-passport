@@ -4,24 +4,25 @@
 // HTTP-referrer-restricted browser key, and shipping any key in the binary leaks
 // it. This proxy holds the server key and forwards the three calls the apps make.
 //
-// POST /places-proxy { kind: "autocomplete" | "textsearch" | "details", ... }
-//   autocomplete: { input: string, bias?: { lat, lng, radius? } }
-//   textsearch:   { query: string, bias?: { lat, lng, radius? } }
-//   details:      { placeId: string }
+// POST /places-proxy { kind: "autocomplete" | "details", ... }
+//   autocomplete: { input: string, bias?: { lat, lng, radius? }, sessionToken?: string }
+//   details:      { placeId: string, sessionToken?: string }
 //
 // Secrets: supabase secrets set GOOGLE_PLACES_SERVER_KEY=...
 //   (a SEPARATE key from the web one: API-restricted to Places API (New),
 //    application restriction "None" — it never leaves this function.)
+//
+// BILLING — the field mask picks the SKU, so keep it in the Essentials tier:
+// `displayName` and `primaryType` are Pro fields ($17/1k, 5k free) and pull the
+// WHOLE call up to Pro. We don't need either: the place's name comes back with
+// the autocomplete suggestion for free, and `types` (Essentials) already
+// carries the cuisine ("thai_restaurant"). Essentials is $5/1k with 10k free.
+// Adding a Pro/Enterprise field here quintuples the per-call price — don't,
+// without checking developers.google.com/maps/documentation/places/web-service/data-fields.
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const FIELDS = {
-  textsearch:
-    "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount",
-  // types/primaryType carry cuisine ("thai_restaurant") — quick-log infers
-  // the passport country from them.
-  details: "location,addressComponents,displayName,formattedAddress,types,primaryType",
-};
+const DETAILS_FIELDS = "location,addressComponents,formattedAddress,types";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -54,6 +55,14 @@ Deno.serve(async (req) => {
       }
     : undefined;
 
+  // A session token ties the keystroke-by-keystroke autocomplete calls to the
+  // one details call that ends the search: Google then bills the whole burst as
+  // a single free session instead of per request. Only tokens that look like
+  // ours are forwarded, and each is good for exactly one search.
+  const sessionToken = /^[\w-]{8,64}$/.test(String(body.sessionToken ?? ""))
+    ? String(body.sessionToken)
+    : undefined;
+
   let url: string;
   let init: RequestInit;
   switch (body.kind) {
@@ -62,22 +71,16 @@ Deno.serve(async (req) => {
       init = post(key, undefined, {
         input: String(body.input ?? ""),
         includedPrimaryTypes: ["restaurant"],
-        ...(locationBias && { locationBias }),
-      });
-      break;
-    case "textsearch":
-      url = "https://places.googleapis.com/v1/places:searchText";
-      init = post(key, FIELDS.textsearch, {
-        textQuery: String(body.query ?? ""),
-        pageSize: 5,
+        ...(sessionToken && { sessionToken }),
         ...(locationBias && { locationBias }),
       });
       break;
     case "details": {
       const placeId = String(body.placeId ?? "");
       if (!/^[\w-]+$/.test(placeId)) return json({ error: "Bad placeId" }, 400);
-      url = `https://places.googleapis.com/v1/places/${placeId}`;
-      init = { headers: { "X-Goog-Api-Key": key, "X-Goog-FieldMask": FIELDS.details } };
+      const query = sessionToken ? `?sessionToken=${sessionToken}` : "";
+      url = `https://places.googleapis.com/v1/places/${placeId}${query}`;
+      init = { headers: { "X-Goog-Api-Key": key, "X-Goog-FieldMask": DETAILS_FIELDS } };
       break;
     }
     default:
