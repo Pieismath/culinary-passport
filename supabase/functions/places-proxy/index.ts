@@ -18,7 +18,9 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const FIELDS = {
   textsearch:
     "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount",
-  details: "location,addressComponents,displayName,formattedAddress",
+  // types/primaryType carry cuisine ("thai_restaurant") — quick-log infers
+  // the passport country from them.
+  details: "location,addressComponents,displayName,formattedAddress,types,primaryType",
 };
 
 Deno.serve(async (req) => {
