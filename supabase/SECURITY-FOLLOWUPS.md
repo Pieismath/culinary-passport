@@ -48,6 +48,23 @@ The function now resolves the caller to a real user via `auth.getUser()`
 (same pattern as generate-avatar). Verified: no token → 401, garbage → 401,
 bare anon key → 401, signed-in user → 200.
 
+### (2026-09-17) Guessable invite codes ✅
+
+Owners could choose 4-character invite codes (one live group had one) and
+`join_group_by_invite` had no attempt limit, while membership exposes members'
+friends-only memories, photos and private profiles. The RPC now returns NULL
+for a miss, records it, and refuses after 10 misses per user per hour; new or
+changed codes must be 6–32 `[a-z0-9]` (trigger, so the existing short code
+keeps working until changed). Tested in a rolled-back transaction.
+
+### (2026-09-17) Upload folders not enforced ✅
+
+`photos` INSERT only checked the bucket, so any signed-in user could write
+into another user's folder; `group-covers` INSERT allowed any group's folder.
+Uploads are now confined to `photos/{own uid}/` and covers to groups you own.
+`groups.created_by` is also immutable (the owners' UPDATE policy had no WITH
+CHECK).
+
 ## Open
 
 - **notify-group webhook secret** — when APNs delivery lands (v1.2 push work,
@@ -57,3 +74,11 @@ bare anon key → 401, signed-in user → 200.
 - **places-proxy rate limiting** — per-user quota (like generate-avatar's
   3/day ledger) would cap Places spend if an account is compromised. Low
   urgency at current scale.
+- **SECURITY DEFINER helpers are callable over RPC** — `shares_group(a, b)`
+  (pre-existing) and `is_friend(a, b)` can be called by anyone who knows two
+  user ids, revealing whether they share a group / follow each other. Follows
+  are already readable by signed-in users; group co-membership isn't. Low
+  severity (needs UUIDs). Fix by moving the helpers to a non-exposed schema
+  (e.g. `private`) and pointing the policies there — EXECUTE can't simply be
+  revoked, because RLS evaluates them as the querying role.
+
