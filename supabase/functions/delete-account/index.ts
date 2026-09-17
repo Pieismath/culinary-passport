@@ -37,13 +37,15 @@ Deno.serve(async (req) => {
   const folders = [user.id.toLowerCase(), user.id.toUpperCase()];
   for (const bucket of ["photos", "avatars"]) {
     for (const folder of folders) {
-      const { data: objects } = await admin.storage.from(bucket)
-        .list(folder, { limit: 1000 });
-      if (objects && objects.length > 0) {
-        await admin.storage.from(bucket)
-          .remove(objects.map((o) => `${folder}/${o.name}`));
-      }
+      await emptyFolder(admin, bucket, folder);
     }
+  }
+
+  // Covers of the groups this user owns — those groups are deleted below.
+  const { data: owned } = await admin.from("groups").select("id")
+    .eq("created_by", user.id);
+  for (const group of owned ?? []) {
+    await emptyFolder(admin, "group-covers", group.id);
   }
 
   // Groups the user OWNS die with them (created_by cascade) — that is the
@@ -53,6 +55,23 @@ Deno.serve(async (req) => {
 
   return json({ deleted: true });
 });
+
+/// `list` pages at 1000 objects; a well-travelled account can have more photos
+/// than that, so keep removing until the folder comes back empty.
+async function emptyFolder(
+  admin: ReturnType<typeof createClient>,
+  bucket: string,
+  folder: string,
+) {
+  for (let round = 0; round < 50; round++) {
+    const { data: objects } = await admin.storage.from(bucket)
+      .list(folder, { limit: 1000 });
+    if (!objects || objects.length === 0) return;
+    const { error } = await admin.storage.from(bucket)
+      .remove(objects.map((o) => `${folder}/${o.name}`));
+    if (error) return;
+  }
+}
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
