@@ -17,6 +17,7 @@ migrations/            THE source of truth for the database schema
   20260722120000_retention_social_layer.sql  meal reactions/comments, saves, blocks, reports, goal, events
   20260917120000_travel_passport.sql         TRAVEL PIVOT: memories, stamps, is_friend(), feed/activity/stamp RPCs, invite + upload hardening
   20260917150000_stamp_dates_follow_memories.sql  stamp date ranges narrow again when a memory is edited or deleted
+  20260918090000_trip_plans_and_saved_places.sql  planned trips + saved places (group-visible when the trip is)
 functions/             edge functions (delete-account, places-proxy, notify-group, generate-avatar)
 patches/               historical one-off fixes, all folded into the files above — do not run
 SECURITY-FOLLOWUPS.md  audit trail of security findings
@@ -73,6 +74,14 @@ additive — see `migrations/20260917120000_travel_passport.sql`:
   (`20260917150000_stamp_dates_follow_memories.sql`).
 - **Friends** — `visibility = 'groups'` is labelled *Friends* in the app and is
   readable by `is_friend(author, viewer)`: mutual follows **or** a shared group.
+- **`trip_plans`** — a trip you're planning: name, `country_codes`, optional
+  `starts_on`/`ends_on`, an optional `group_id`, notes. Memories are never
+  attached to it; the app matches them by date window and country
+  (`TripPlan.covers`), so a plan becomes a chapter with nothing to migrate.
+- **`saved_places`** — somewhere you want to go, optionally on a trip and
+  optionally credited to the memory it came from (`source_entry_id`). Private
+  unless its trip is shared with a group, in which case the whole group sees
+  the list and can add to it; each row stays editable only by whoever saved it.
 - **RPCs** — `friends_feed(before_ts, page_size)`, `my_activity(page_size)`,
   `add_stamps(items jsonb)`; all invoker-rights, so RLS still decides.
 - **Hardening** — `join_group_by_invite` returns NULL for a wrong code and
