@@ -16,6 +16,7 @@ migrations/            THE source of truth for the database schema
   20260722090000_group_delete_and_member_colors.sql   owners delete groups
   20260722120000_retention_social_layer.sql  meal reactions/comments, saves, blocks, reports, goal, events
   20260917120000_travel_passport.sql         TRAVEL PIVOT: memories, stamps, is_friend(), feed/activity/stamp RPCs, invite + upload hardening
+  20260917150000_stamp_dates_follow_memories.sql  stamp date ranges narrow again when a memory is edited or deleted
 functions/             edge functions (delete-account, places-proxy, notify-group, generate-avatar)
 patches/               historical one-off fixes, all folded into the files above — do not run
 SECURITY-FOLLOWUPS.md  audit trail of security findings
@@ -33,6 +34,14 @@ existing only in production for a week. Don't regress to that.
   via the dashboard SQL editor / management API **and** insert its row into
   `supabase_migrations.schema_migrations (version, name)`.
 - A fresh project bootstraps by running every migration in order.
+- Rehearse against the live database first, without the DB password:
+  `supabase db query --linked -f dryrun.sql`, where `dryrun.sql` is
+  `begin;` + the migration + a `do $$ … $$;` block that asserts the new
+  behaviour (set `request.jwt.claims` and `set local role authenticated` to
+  test RLS as a given user) and ends with `raise exception 'TESTS_PASSED'`.
+  The raise aborts the transaction, so a passing run leaves nothing behind.
+  Then apply with the same command on `begin;` + migration + the
+  `schema_migrations` insert + `commit;`.
 
 Edge functions deploy independently: `supabase functions deploy <name>` from
 the repo root (see `functions/README.md` for secrets).
@@ -57,7 +66,11 @@ additive — see `migrations/20260917120000_travel_passport.sql`:
 - **`stamps`** `(user_id, country_code)` — the countries you've been to, with or
   without memories (`source`: manual checklist / photo-library import /
   memory). A trigger stamps a memory's country and removes memory-only stamps
-  when their last memory goes.
+  when their last memory goes. Dates given directly (import, checklist) are
+  kept in `stamped_first/last`; the visible `first_visited/last_visited` are
+  refitted from those plus your memories whenever either changes, so
+  correcting a memory's date narrows the range instead of only widening it
+  (`20260917150000_stamp_dates_follow_memories.sql`).
 - **Friends** — `visibility = 'groups'` is labelled *Friends* in the app and is
   readable by `is_friend(author, viewer)`: mutual follows **or** a shared group.
 - **RPCs** — `friends_feed(before_ts, page_size)`, `my_activity(page_size)`,
