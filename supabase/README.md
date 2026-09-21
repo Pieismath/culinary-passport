@@ -18,6 +18,8 @@ migrations/            THE source of truth for the database schema
   20260917120000_travel_passport.sql         TRAVEL PIVOT: memories, stamps, is_friend(), feed/activity/stamp RPCs, invite + upload hardening
   20260917150000_stamp_dates_follow_memories.sql  stamp date ranges narrow again when a memory is edited or deleted
   20260918090000_trip_plans_and_saved_places.sql  planned trips + saved places (group-visible when the trip is)
+  20260921090000_tasted_stamps.sql           FOOD RETURNS: tastes (the Tasted stamp), meal triggers, add_tastes(), meals in the feed
+  20260921120000_saved_place_cuisine.sql     saved_places.cuisine_code — a restaurant's cuisine, apart from where it is
 functions/             edge functions (delete-account, places-proxy, notify-group, generate-avatar)
 patches/               historical one-off fixes, all folded into the files above — do not run
 SECURITY-FOLLOWUPS.md  audit trail of security findings
@@ -74,6 +76,13 @@ additive — see `migrations/20260917120000_travel_passport.sql`:
   (`20260917150000_stamp_dates_follow_memories.sql`).
 - **Friends** — `visibility = 'groups'` is labelled *Friends* in the app and is
   readable by `is_friend(author, viewer)`: mutual follows **or** a shared group.
+- **`tastes`** `(user_id, country_code)` — the Tasted stamp: you've eaten that
+  country's food. Meals are `entries` with `kind = 'meal'` (the culinary
+  app's rows, kept since the pivot); a trigger tastes a meal's cuisine and
+  refits `first_tasted`/`last_tasted`/`meals`, and removes a meal-only taste
+  with its last meal. `add_tastes(codes text[])` is the cuisine checklist.
+  The friends feed includes meals. Pre-pivot meals were backfilled into
+  tastes when this shipped (2026-09-21).
 - **`trip_plans`** — a trip you're planning: name, `country_codes`, optional
   `starts_on`/`ends_on`, an optional `group_id`, notes. Memories are never
   attached to it; the app matches them by date window and country
