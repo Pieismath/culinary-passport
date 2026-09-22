@@ -20,6 +20,7 @@ migrations/            THE source of truth for the database schema
   20260918090000_trip_plans_and_saved_places.sql  planned trips + saved places (group-visible when the trip is)
   20260921090000_tasted_stamps.sql           FOOD RETURNS: tastes (the Tasted stamp), meal triggers, add_tastes(), meals in the feed
   20260921120000_saved_place_cuisine.sql     saved_places.cuisine_code — a restaurant's cuisine, apart from where it is
+  20260922090000_table_tickets.sql           FOOD ONLY: group_posts carry a dinner pick (cuisine + suggested restaurant)
 functions/             edge functions (delete-account, places-proxy, notify-group, generate-avatar)
 patches/               historical one-off fixes, all folded into the files above — do not run
 SECURITY-FOLLOWUPS.md  audit trail of security findings
@@ -56,6 +57,24 @@ the repo root (see `functions/README.md` for secrets).
 | `photos` | **private** — read via signed URLs only; object policy mirrors the owning entry's visibility (own / public / shared-group) |
 | `avatars` | public (avatars are public by design) |
 | `group-covers` | public |
+
+## Food-only app (2026-09-22)
+
+The iOS app is now about food alone: the globe fills in with the cuisines
+you've eaten, and a spin picks one nobody at your table has tried. It reads
+`entries` of kind `'meal'`, `tastes`, `saved_places` (restaurants to try) and
+the group tables below. `stamps`, `trip_plans` and `kind = 'memory'` entries
+stay in the database untouched — nothing was dropped — but the app no longer
+reads or writes them.
+
+- **Tables are groups.** `groups`, `group_members`, `group_posts`,
+  `post_comments`, `post_reactions` are unchanged in shape and policy.
+- **Dinner picks in chat** (`20260922090000_table_tickets.sql`) — a
+  `group_posts` row may carry `cuisine_code` (what the spin landed on) and a
+  suggested restaurant: `place_name`, `place_address`, `place_lat/lng` (the
+  business's location). A restaurant always comes with its cuisine and
+  coordinates come as a pair. `text` keeps a readable line for older clients
+  and push previews. "I'm in" is a `post_reactions` row with emoji 🙋.
 
 ## Travel passport model (2026-09-17)
 
